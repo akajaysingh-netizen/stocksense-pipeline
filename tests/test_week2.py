@@ -5,7 +5,12 @@ import shutil
 import tempfile
 import unittest
 
-from stocksense_pipeline import backfill, build_outputs, features, history
+import io
+import urllib.error
+from unittest import mock
+
+from stocksense_pipeline import backfill, build_outputs, features, history, iex
+from stocksense_pipeline.http import FetchError
 
 def read_json(path):
     with open(path, encoding="utf-8") as fh:
@@ -52,6 +57,36 @@ class BackfillTest(unittest.TestCase):
             self.assertFalse(os.path.exists(os.path.join(out, "raw", "2026-10-27_bars.csv")))
         finally:
             shutil.rmtree(out)
+
+    def test_one_bad_day_does_not_stop_the_shard(self):
+        out = tempfile.mkdtemp()
+        calls = []
+
+        def fetch_index(compact):
+            if compact == "20261026":
+                raise FetchError("timeout")
+            return {"link": compact}
+
+        def parse(link, iso, bars_csv):
+            calls.append(iso)
+            shutil.copy(os.path.join(FIX, "bars.csv"), bars_csv)
+            return "ok"
+
+        try:
+            rc = backfill.main(["--end", "2026-10-27", "--sessions", "3", "--out", out], fetch_index, parse)
+            self.assertEqual(rc, 1)  # reported, but the other days were still built
+            self.assertEqual(calls, ["2026-10-23", "2026-10-27"])
+        finally:
+            shutil.rmtree(out)
+
+    def test_holiday_404_means_no_file(self):
+        err = urllib.error.HTTPError(iex.HIST_INDEX_URL % "20260703", 404, "Not Found", {}, io.BytesIO(b""))
+        with mock.patch("urllib.request.urlopen", side_effect=err):
+            self.assertIsNone(iex.tops_file("20260703"))
+        err500 = urllib.error.HTTPError("u", 500, "Server Error", {}, io.BytesIO(b""))
+        with mock.patch("urllib.request.urlopen", side_effect=err500):
+            with self.assertRaises(FetchError):
+                iex.tops_file("20260703")
 
 
 class HistoryTest(unittest.TestCase):

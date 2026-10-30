@@ -48,11 +48,18 @@ class SecFetcher:
         return json.loads(data.decode("utf-8"))
 
 
-def get_json(url, timeout=60):
-    """Plain JSON GET for public endpoints that need no identification (IEX HIST index)."""
+def get_json(url, timeout=60, missing=False):
+    """Plain JSON GET for public endpoints that need no identification (IEX HIST index).
+
+    With missing=True a 404 returns None instead of raising.
+    """
     req = urllib.request.Request(url, headers={"User-Agent": "stocksense-pipeline"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
-    except (urllib.error.HTTPError, urllib.error.URLError) as exc:
+    except urllib.error.HTTPError as exc:
+        if missing and exc.code == 404:
+            return None
+        raise FetchError("could not fetch %s: %s" % (url, exc))
+    except urllib.error.URLError as exc:
         raise FetchError("could not fetch %s: %s" % (url, exc))

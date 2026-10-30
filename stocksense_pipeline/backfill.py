@@ -59,13 +59,19 @@ def main(argv=None, fetch_index=None, parse=None):
     parse = parse or iex.run_parser
     dates = shard(weekdays_back(dt.date.fromisoformat(a.end), a.sessions), a.shard, a.shards)
     done = skipped = holidays = 0
+    failed = []
     for d in dates:
         iso = d.isoformat()
         prices_csv = os.path.join(a.out, "prices", "%s.csv" % iso)
         if os.path.isfile(prices_csv):
             skipped += 1
             continue
-        entry = fetch_index(d.strftime("%Y%m%d"))
+        try:
+            entry = fetch_index(d.strftime("%Y%m%d"))
+        except FetchError as exc:
+            print("%s: index failed: %s" % (iso, exc), file=sys.stderr)
+            failed.append(iso)
+            continue
         if entry is None:
             holidays += 1
             continue
@@ -75,13 +81,15 @@ def main(argv=None, fetch_index=None, parse=None):
             log = parse(entry["link"], iso, bars_csv)
         except FetchError as exc:
             print("%s: failed: %s" % (iso, exc), file=sys.stderr)
+            failed.append(iso)
             continue
         n = write_prices(bars_csv, prices_csv)
         os.remove(bars_csv)
         done += 1
         print("%s: %d symbols. %s" % (iso, n, log))
-    print("backfill: %d built, %d already present, %d without an IEX file" % (done, skipped, holidays))
-    return 0
+    print("backfill: %d built, %d already present, %d without an IEX file, %d failed %s"
+          % (done, skipped, holidays, len(failed), " ".join(failed)))
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

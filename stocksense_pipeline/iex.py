@@ -22,8 +22,11 @@ DEFAULT_PARSER = os.path.join(HERE, "..", "iexparse", "iexparse.exe" if os.name 
 
 
 def tops_file(date_compact, index=None):
-    """The TOPS entry {link, size, version} for a YYYYMMDD date, or None if IEX has none (holiday, weekend)."""
-    index = index if index is not None else get_json(HIST_INDEX_URL % date_compact)
+    """The TOPS entry {link, size, version} for a YYYYMMDD date, or None if IEX has none (holiday, weekend).
+
+    IEX answers 404 for market holidays and an empty list for weekends.
+    """
+    index = index if index is not None else get_json(HIST_INDEX_URL % date_compact, missing=True)
     tops = [e for e in index or [] if e.get("feed") == "TOPS"]
     if not tops:
         return None

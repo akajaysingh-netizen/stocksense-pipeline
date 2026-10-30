@@ -34,12 +34,32 @@ jobs:
       - name: Build iexparse
         working-directory: iexparse
         run: go build -o iexparse .
+      # Days already in the store are skipped, so a re-run only fetches what is missing.
+      - name: Restore existing price store
+        uses: actions/cache/restore@v4
+        with:
+          path: out/prices
+          key: prices-store-${{ github.run_id }}
+          restore-keys: prices-store-
       - name: Backfill shard ${{ matrix.shard }}
-        run: python -m stocksense_pipeline.backfill --end "${{ inputs.end }}" --sessions "${{ inputs.sessions }}" --shard ${{ matrix.shard }} --shards 20
+        run: |
+          mkdir -p out/prices out/new
+          ls out/prices > out/before.txt
+          python -m stocksense_pipeline.backfill --end "${{ inputs.end }}" --sessions "${{ inputs.sessions }}" --shard ${{ matrix.shard }} --shards 20
+      - name: Keep only new days
+        if: always()
+        run: |
+          for f in out/prices/*.csv; do
+            [ -e "$f" ] || continue
+            grep -qx "$(basename "$f")" out/before.txt || cp "$f" out/new/
+          done
+          ls out/new | wc -l
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: prices-${{ matrix.shard }}
-          path: out/prices
+          path: out/new
+          if-no-files-found: ignore
           retention-days: 3
 
   merge:
