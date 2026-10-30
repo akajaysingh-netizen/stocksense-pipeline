@@ -13,7 +13,7 @@ import json
 import os
 import sys
 
-from . import edgar, features, history, iex
+from . import edgar, features, history, iex, universe
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 
@@ -66,7 +66,8 @@ def main(argv=None):
     rows, quality = [], {"date": latest, "sessions": len(dates), "first_session": dates[0],
                           "stale": [], "large_moves_today": [], "splits_inferred_today": [], "missing_universe": []}
     for sym, s in history.series_by_symbol(days).items():
-        if meta and sym not in meta:
+        # Indian ADRs never reach the app, even before the SEC universe exists (doc 07, India parked).
+        if sym in universe.INDIAN_ADRS or (meta and sym not in meta):
             continue
         close, volume, events = history.adjust(s)
         _write_json(os.path.join(a.out, "history", "%s.json" % sym),
@@ -100,7 +101,9 @@ def main(argv=None):
     if meta:
         have = {r[0] for r in rows}
         quality["missing_universe"] = sorted(s for s in meta if s not in have)
-    snapshot = {"date": latest, "columns": COLUMNS, "rows": sorted(rows, key=lambda r: r[0]),
+    # Deploy steps must refuse a snapshot built without the SEC universe filter
+    # (no India-incorporated check, no exchange filter).
+    snapshot = {"date": latest, "universe_filtered": bool(meta), "columns": COLUMNS, "rows": sorted(rows, key=lambda r: r[0]),
                 "source": {"prices": iex.ATTRIBUTION, "prices_url": iex.ATTRIBUTION_URL,
                            "prices_note": "Last IEX trade, previous session; IEX trades only.",
                            "fundamentals": "Source: SEC EDGAR"}}
