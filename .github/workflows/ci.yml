@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: Test IEX parser
+        working-directory: iexparse
+        run: go vet ./... && go test ./...
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Test pipeline
+        run: python -m unittest discover -s tests -t .

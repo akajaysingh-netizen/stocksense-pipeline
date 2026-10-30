@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Go binary
+iexparse/iexparse
+iexparse/*.exe
+
+# Outputs and raw downloads (regenerated nightly)
+out/
+raw/
+*.pcap
+*.pcap.gz
+
+# Secrets
+.env*

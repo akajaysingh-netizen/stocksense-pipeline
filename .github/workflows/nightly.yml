@@ -1,0 +1,51 @@
+name: Nightly data
+
+# Runs after IEX publishes the previous session's HIST files.
+# The schedule stays off until the free Cloudflare R2 bucket exists (week 2);
+# until then the job is started by hand and keeps its output as a build artifact.
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Session date YYYY-MM-DD (default: previous weekday)"
+        required: false
+  # schedule:
+  #   - cron: "0 7 * * 2-6"   # 07:00 UTC Tue–Sat
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build iexparse
+        working-directory: iexparse
+        run: go build -o iexparse .
+      - name: Pick session date
+        id: d
+        run: |
+          if [ -n "${{ inputs.date }}" ]; then echo "date=${{ inputs.date }}" >> "$GITHUB_OUTPUT"
+          else echo "date=$(python3 -c 'import datetime as d; t=d.date.today()-d.timedelta(1)
+          while t.weekday()>4: t-=d.timedelta(1)
+          print(t)')" >> "$GITHUB_OUTPUT"; fi
+      - name: Build the day
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+        run: |
+          if [ -z "$SEC_USER_AGENT" ]; then EXTRA="--no-sec"; fi
+          python -m stocksense_pipeline.build_day --date "${{ steps.d.outputs.date }}" $EXTRA
+      - uses: actions/upload-artifact@v4
+        with:
+          name: data-${{ steps.d.outputs.date }}
+          path: |
+            out/prices
+            out/snapshot
+            out/manifest
+            out/universe.json
+          retention-days: 7

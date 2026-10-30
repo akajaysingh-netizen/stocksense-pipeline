@@ -1,0 +1,46 @@
+{
+ "fields": [
+  "cik",
+  "name",
+  "ticker",
+  "exchange"
+ ],
+ "data": [
+  [
+   1000001,
+   "Acme Robotics Inc",
+   "ACME",
+   "Nasdaq"
+  ],
+  [
+   1000002,
+   "Berkshire Sample Co",
+   "BRK-B",
+   "NYSE"
+  ],
+  [
+   1000003,
+   "Infosys Ltd",
+   "INFY",
+   "NYSE"
+  ],
+  [
+   1000004,
+   "Pink Sheet Corp",
+   "PINK",
+   "OTC"
+  ],
+  [
+   1000005,
+   "Bharat Example Ltd",
+   "BHRT",
+   "NYSE"
+  ],
+  [
+   1000001,
+   "Acme Robotics Inc",
+   "ACME",
+   "Nasdaq"
+  ]
+ ]
+}
