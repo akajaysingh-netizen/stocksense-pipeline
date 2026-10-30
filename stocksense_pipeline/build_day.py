@@ -1,23 +1,22 @@
-"""Build one session's data: universe, IEX bars, fundamentals and ratios.
+"""Nightly build for one session: universe, IEX prices, fundamentals, then app files.
 
-    python -m stocksense_pipeline.build_day --date 2026-10-27 [--bars FILE] [--offline DIR] [--limit N]
+    python -m stocksense_pipeline.build_day --date 2026-10-27 [--bars FILE] [--offline DIR] [--no-sec] [--limit N]
 
-Writes to pipeline/out/:
-    universe.json                  symbols in the app and why others were excluded
-    prices/{date}.csv              IEX daily bars for universe symbols
-    fundamentals/{SYMBOL}.json     filings summary + ratios at that day's price
-    snapshot/{date}.json           one row per symbol for the screener
-    manifest/{date}.json           counts, sources and attribution
+Writes to out/:
+    universe.json, incorporation.json   symbols in the app and why others were excluded
+    prices/{date}.csv                   IEX daily bars for the session
+    fundamentals/{SYMBOL}.json          SEC filings summary
+    history/, snapshot/, quality/       via build_outputs
+    manifest/{date}.json                counts, sources and attribution
 """
 
 import argparse
-import csv
 import datetime as dt
 import json
 import os
 import sys
 
-from . import edgar, iex, universe
+from . import backfill, build_outputs, edgar, iex, universe
 from .http import FetchError, SecFetcher
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
@@ -38,14 +37,12 @@ def main(argv=None):
     ap.add_argument("--limit", type=int, default=0, help="only fetch fundamentals for the first N symbols")
     ap.add_argument("--out", default=os.path.join(ROOT, "out"))
     a = ap.parse_args(argv)
-
-    date = dt.date.fromisoformat(a.date)
+    dt.date.fromisoformat(a.date)
     sec = SecFetcher(offline_dir=a.offline)
 
     # 1. Universe
-    if a.no_sec:
-        uni_rows, excluded = None, {}
-    else:
+    uni_rows, excluded = None, {}
+    if not a.no_sec:
         sec_rows = universe.fetch_universe(sec)
         cache_path = os.path.join(a.out, "incorporation.json")
         cache = json.load(open(cache_path, encoding="utf-8")) if os.path.isfile(cache_path) else {}
@@ -53,57 +50,38 @@ def main(argv=None):
         _write_json(cache_path, cache)
         uni_rows, excluded = universe.build_universe(sec_rows, incorporation)
         _write_json(os.path.join(a.out, "universe.json"), {"as_of": a.date, "symbols": uni_rows, "excluded": excluded})
-    symbols = {r["symbol"] for r in uni_rows} if uni_rows else None
 
-    # 2. IEX bars
+    # 2. IEX prices for the session
     bars_csv = a.bars
     if not bars_csv:
-        entry = iex.tops_file(date.strftime("%Y%m%d"))
+        entry = iex.tops_file(a.date.replace("-", ""))
         if entry is None:
             print("No IEX TOPS file for %s (market holiday or weekend)." % a.date)
             return 0
         bars_csv = os.path.join(a.out, "raw", "%s_bars.csv" % a.date)
         os.makedirs(os.path.dirname(bars_csv), exist_ok=True)
         print(iex.run_parser(entry["link"], a.date, bars_csv))
-    bars = iex.read_bars(bars_csv, symbols)
-    prices_path = os.path.join(a.out, "prices", "%s.csv" % a.date)
-    os.makedirs(os.path.dirname(prices_path), exist_ok=True)
-    with open(prices_path, "w", newline="", encoding="utf-8") as fh:
-        w = csv.writer(fh)
-        w.writerow(["symbol", "open", "high", "low", "close", "volume", "trades", "odd_lot_only"])
-        for sym in sorted(bars):
-            b = bars[sym]
-            w.writerow([sym, b["open"], b["high"], b["low"], b["close"], b["volume"], b["trades"], int(b["odd_lot_only"])])
+    n_bars = backfill.write_prices(bars_csv, os.path.join(a.out, "prices", "%s.csv" % a.date))
 
-    # 3. Fundamentals + snapshot rows
-    snapshot, failures = [], {}
-    rows = uni_rows or [{"symbol": s, "cik": None, "name": None, "exchange": None} for s in sorted(bars)]
-    if a.limit:
-        rows = rows[: a.limit]
-    for r in rows:
-        bar = bars.get(r["symbol"])
-        row = {"symbol": r["symbol"], "name": r["name"], "exchange": r["exchange"],
-               "price": bar["close"] if bar else None, "volume": bar["volume"] if bar else None,
-               "no_iex_trade": bar is None}
-        if r.get("cik") and not a.no_sec:
+    # 3. Fundamentals
+    failures = {}
+    if uni_rows and not a.no_sec:
+        rows = uni_rows[: a.limit] if a.limit else uni_rows
+        for r in rows:
             try:
                 facts = sec.json(edgar.COMPANYFACTS_URL % r["cik"], "CIK%010d.json" % r["cik"])
-                summary = edgar.summarise(facts)
-                summary["ratios"] = edgar.ratios(summary, row["price"])
-                _write_json(os.path.join(a.out, "fundamentals", "%s.json" % r["symbol"]), summary)
-                row.update(summary["ratios"])
+                _write_json(os.path.join(a.out, "fundamentals", "%s.json" % r["symbol"]), edgar.summarise(facts))
             except FetchError as exc:
                 failures[r["symbol"]] = str(exc)
-        snapshot.append(row)
-    _write_json(os.path.join(a.out, "snapshot", "%s.json" % a.date), snapshot)
+
+    # 4. App files
+    build_outputs.main(["--out", a.out])
 
     manifest = {
         "date": a.date,
         "universe": len(uni_rows) if uni_rows else None,
         "excluded": len(excluded),
-        "iex_bars": len(bars),
-        "snapshot_rows": len(snapshot),
-        "no_iex_trade": sum(1 for s in snapshot if s["no_iex_trade"]),
+        "iex_bars": n_bars,
         "sec_failures": len(failures),
         "sources": {
             "prices": {"name": "IEX HIST (TOPS)", "attribution": iex.ATTRIBUTION, "url": iex.ATTRIBUTION_URL,

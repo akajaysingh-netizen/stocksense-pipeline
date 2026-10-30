@@ -9,9 +9,13 @@ from stocksense_pipeline import build_day, edgar, iex, universe
 FIX = os.path.join(os.path.dirname(__file__), "fixtures")
 
 
-def load(name):
-    with open(os.path.join(FIX, name), encoding="utf-8") as fh:
+def read_json(path):
+    with open(path, encoding="utf-8") as fh:
         return json.load(fh)
+
+
+def load(name):
+    return read_json(os.path.join(FIX, name))
 
 
 class UniverseTest(unittest.TestCase):
@@ -79,15 +83,16 @@ class BuildDayTest(unittest.TestCase):
             rc = build_day.main(["--date", "2026-10-27", "--bars", os.path.join(FIX, "bars.csv"),
                                  "--offline", FIX, "--out", out])
             self.assertEqual(rc, 0)
-            snap = json.load(open(os.path.join(out, "snapshot", "2026-10-27.json"), encoding="utf-8"))
-            by = {r["symbol"]: r for r in snap}
-            self.assertEqual(set(by), {"ACME", "BRK.B"})
+            snap = read_json(os.path.join(out, "snapshot", "2026-10-27.json"))
+            by = {r[0]: dict(zip(snap["columns"], r)) for r in snap["rows"]}
+            self.assertEqual(set(by), {"ACME", "BRK.B"})  # INFY and the test symbol never reach the app
             self.assertEqual(by["ACME"]["price"], 11.0)
             self.assertEqual(by["ACME"]["pe"], 2.0)
-            manifest = json.load(open(os.path.join(out, "manifest", "2026-10-27.json"), encoding="utf-8"))
+            self.assertEqual(snap["source"]["prices"], "Data provided for free by IEX")
+            manifest = read_json(os.path.join(out, "manifest", "2026-10-27.json"))
             self.assertEqual(manifest["sources"]["prices"]["attribution"], "Data provided for free by IEX")
             self.assertEqual(manifest["sec_failures"], 1)  # BRK.B has no fixture file
-            self.assertNotIn("INFY", open(os.path.join(out, "prices", "2026-10-27.csv"), encoding="utf-8").read())
+            self.assertFalse(os.path.exists(os.path.join(out, "history", "INFY.json")))
         finally:
             shutil.rmtree(out)
 

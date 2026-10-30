@@ -1,8 +1,8 @@
 name: Nightly data
 
-# Runs after IEX publishes the previous session's HIST files.
-# The schedule stays off until the free Cloudflare R2 bucket exists (week 2);
-# until then the job is started by hand and keeps its output as a build artifact.
+# Adds the previous session to the price store and rebuilds the app files.
+# The schedule stays off until the free Cloudflare R2 bucket exists; until
+# then the job is started by hand and keeps its output as a build artifact.
 on:
   workflow_dispatch:
     inputs:
@@ -34,18 +34,29 @@ jobs:
           else echo "date=$(python3 -c 'import datetime as d; t=d.date.today()-d.timedelta(1)
           while t.weekday()>4: t-=d.timedelta(1)
           print(t)')" >> "$GITHUB_OUTPUT"; fi
+      - name: Restore price store
+        uses: actions/cache/restore@v4
+        with:
+          path: out/prices
+          key: prices-store-${{ github.run_id }}
+          restore-keys: prices-store-
       - name: Build the day
         env:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
         run: |
           if [ -z "$SEC_USER_AGENT" ]; then EXTRA="--no-sec"; fi
           python -m stocksense_pipeline.build_day --date "${{ steps.d.outputs.date }}" $EXTRA
+      - name: Save price store
+        uses: actions/cache/save@v4
+        with:
+          path: out/prices
+          key: prices-store-${{ github.run_id }}
       - uses: actions/upload-artifact@v4
         with:
           name: data-${{ steps.d.outputs.date }}
           path: |
-            out/prices
             out/snapshot
+            out/quality
             out/manifest
             out/universe.json
           retention-days: 7

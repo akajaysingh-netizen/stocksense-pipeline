@@ -1,0 +1,81 @@
+name: Backfill history
+
+# One-off (or catch-up) download of past IEX sessions. 20 jobs run in
+# parallel; each handles every 20th session. The merged price store is kept
+# in the Actions cache, where the nightly job picks it up.
+on:
+  workflow_dispatch:
+    inputs:
+      end:
+        description: "Last session YYYY-MM-DD"
+        required: true
+      sessions:
+        description: "Number of weekdays to cover"
+        required: true
+        default: "252"
+
+jobs:
+  shard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build iexparse
+        working-directory: iexparse
+        run: go build -o iexparse .
+      - name: Backfill shard ${{ matrix.shard }}
+        run: python -m stocksense_pipeline.backfill --end "${{ inputs.end }}" --sessions "${{ inputs.sessions }}" --shard ${{ matrix.shard }} --shards 20
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prices-${{ matrix.shard }}
+          path: out/prices
+          retention-days: 3
+
+  merge:
+    needs: shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Restore existing price store
+        uses: actions/cache/restore@v4
+        with:
+          path: out/prices
+          key: prices-store-${{ github.run_id }}
+          restore-keys: prices-store-
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: prices-*
+          path: out/prices
+          merge-multiple: true
+      - name: Build app files
+        run: |
+          ls out/prices | wc -l
+          python -m stocksense_pipeline.build_outputs
+      - name: Save price store
+        uses: actions/cache/save@v4
+        with:
+          path: out/prices
+          key: prices-store-${{ github.run_id }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-files-${{ inputs.end }}
+          path: |
+            out/snapshot
+            out/quality
+            out/history
+          retention-days: 7
