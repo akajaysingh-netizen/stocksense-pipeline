@@ -100,8 +100,9 @@ class HistoryTest(unittest.TestCase):
         self.assertEqual(s["B"]["dates"], ["2026-10-03"])
 
     def test_split_inferred_and_large_move_flagged(self):
-        s = {"dates": ["d1", "d2", "d3", "d4"], "close": [200.0, 202.0, 101.5, 160.0],
-             "volume": [100, 100, 200, 200], "no_trade": [False] * 4}
+        s = {"dates": ["d1", "d2", "d3", "d4", "d5", "d6", "d7"],
+             "close": [200.0, 202.0, 101.5, 102.0, 103.0, 104.0, 170.0],
+             "volume": [100, 100, 200, 200, 200, 200, 200], "no_trade": [False] * 7}
         close, volume, events = history.adjust(s)
         self.assertEqual(close[:3], [100.0, 101.0, 101.5])
         self.assertEqual(volume[:2], [200, 200])
@@ -113,6 +114,22 @@ class HistoryTest(unittest.TestCase):
         self.assertEqual(history.match_split(10.1), 10)
         self.assertAlmostEqual(history.match_split(0.333), 1 / 3)
         self.assertIsNone(history.match_split(1.7))
+        self.assertIsNone(history.match_split(1.5))  # 3:2 is a common small-cap move, not taken as a split
+
+    def _series(self, close, no_trade=None, odd_lot=None):
+        n = len(close)
+        return {"dates": ["d%d" % i for i in range(n)], "close": close, "volume": [100] * n,
+                "no_trade": no_trade or [False] * n, "odd_lot": odd_lot or [False] * n}
+
+    def test_spike_that_reverts_is_not_a_split(self):
+        _, _, events = history.adjust(self._series([10, 10, 10, 20, 10, 10]))
+        self.assertEqual({e["type"] for e in events}, {"large_move"})
+
+    def test_odd_lot_or_stale_close_is_not_a_split(self):
+        _, _, ev = history.adjust(self._series([10, 10, 5, 5, 5], odd_lot=[False, False, True, False, False]))
+        self.assertEqual(ev[0]["type"], "large_move")
+        _, _, ev = history.adjust(self._series([10, 10, 10, 5, 5], no_trade=[False, False, True, False, False]))
+        self.assertEqual(ev[0]["type"], "large_move")
 
 
 class FeaturesTest(unittest.TestCase):
