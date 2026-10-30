@@ -75,6 +75,8 @@ def main(argv=None):
                      "no_trade": s["no_trade"], "events": events,
                      "source": iex.ATTRIBUTION, "source_url": iex.ATTRIBUTION_URL}, compact=True)
         f = features.compute(close, volume)
+        if s["no_trade"][-1]:
+            f["setups"] = []  # a carried-forward price is not a signal
         last_trade = len(s["no_trade"]) - 1 - s["no_trade"][::-1].index(False) if False in s["no_trade"] else None
         stale_for = len(s["no_trade"]) - 1 - last_trade if last_trade is not None else None
         if stale_for and stale_for >= STALE_SESSIONS:

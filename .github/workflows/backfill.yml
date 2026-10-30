@@ -10,9 +10,9 @@ on:
         description: "Last session YYYY-MM-DD"
         required: true
       sessions:
-        description: "Number of weekdays to cover"
+        description: "Number of weekdays to cover (262 weekdays give at least 252 trading sessions)"
         required: true
-        default: "252"
+        default: "262"
 
 jobs:
   shard:

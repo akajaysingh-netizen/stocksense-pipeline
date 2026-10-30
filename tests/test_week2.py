@@ -181,6 +181,7 @@ class BuildOutputsTest(unittest.TestCase):
             snap = read_json(os.path.join(out, "snapshot", "%s.json" % latest))
             by = {r[0]: dict(zip(snap["columns"], r)) for r in snap["rows"]}
             self.assertTrue(by["GONE"]["no_iex_trade"])
+            self.assertEqual(by["GONE"]["setups"], [])  # no trade today, so no setup
             self.assertNotIn("INFY", by)  # Indian ADR dropped even without a universe file
             self.assertFalse(os.path.exists(os.path.join(out, "history", "INFY.json")))
             self.assertFalse(snap["universe_filtered"])
